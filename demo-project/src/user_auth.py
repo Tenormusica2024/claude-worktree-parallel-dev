@@ -1,4 +1,4 @@
-import hashlib
+import bcrypt
 import sqlite3
 
 
@@ -26,7 +26,7 @@ class UserAuthentication:
     def register_user(self, username, password, email):
         cursor = self.conn.cursor()
         
-        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         
         try:
             cursor.execute(
@@ -41,7 +41,7 @@ class UserAuthentication:
     def login(self, username, password):
         cursor = self.conn.cursor()
         
-        hashed_password = hashlib.sha256(password.encode()).hexdigest()
+        hashed_password = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
         
         cursor.execute(
             "SELECT id FROM users WHERE username = ? AND password = ?",

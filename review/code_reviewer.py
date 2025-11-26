@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import sys
 import json
@@ -6,6 +7,11 @@ from datetime import datetime
 from pathlib import Path
 import subprocess
 import re
+
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 
 class CodeReviewAgent:
@@ -87,6 +93,15 @@ class CodeReviewAgent:
     
     def _check_security(self, file_path, content):
         findings = []
+        
+        if "hashlib.sha256" in content or "hashlib.md5" in content:
+            findings.append({
+                "severity": "critical",
+                "category": "security",
+                "file": file_path,
+                "message": "SHA256/MD5はパスワードハッシュに適していません",
+                "recommendation": "bcryptやArgon2等の遅いハッシュ関数を使用してください"
+            })
         
         if "password" in content.lower() and "hash" not in content.lower():
             findings.append({

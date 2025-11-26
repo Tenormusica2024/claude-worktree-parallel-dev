@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 import os
 import sys
 import re
 from pathlib import Path
+
+if sys.platform == 'win32':
+    import codecs
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 
 class AutoFixer:
@@ -82,7 +88,10 @@ class AutoFixer:
         
         original_content = content
         
-        if "パスワードが平文で保存" in issue["message"]:
+        if "SHA256/MD5はパスワードハッシュに適していません" in issue["message"]:
+            content = self._fix_weak_password_hash(content, file_path)
+        
+        elif "パスワードが平文で保存" in issue["message"]:
             content = self._fix_plain_password(content, file_path)
         
         elif "eval()の使用" in issue["message"]:
@@ -102,6 +111,25 @@ class AutoFixer:
             print(f"  ✅ 修正適用: {file_path} - {issue['message']}")
         else:
             print(f"  ⚠️ 自動修正不可: {file_path} - {issue['message']}")
+    
+    def _fix_weak_password_hash(self, content, file_path):
+        if file_path.endswith('.py'):
+            if 'import hashlib' in content:
+                content = content.replace('import hashlib', 'import bcrypt')
+            
+            content = re.sub(
+                r'hashlib\.sha256\((.+?)\)\.hexdigest\(\)',
+                r'bcrypt.hashpw(\1, bcrypt.gensalt()).decode()',
+                content
+            )
+            
+            content = re.sub(
+                r'hashlib\.md5\((.+?)\)\.hexdigest\(\)',
+                r'bcrypt.hashpw(\1, bcrypt.gensalt()).decode()',
+                content
+            )
+        
+        return content
     
     def _fix_plain_password(self, content, file_path):
         if file_path.endswith('.py'):
