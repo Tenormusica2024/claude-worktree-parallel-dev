@@ -1,0 +1,104 @@
+#!/bin/bash
+
+set -e
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$HOOK_DIR")"
+
+COLOR_RESET="\033[0m"
+COLOR_GREEN="\033[0;32m"
+COLOR_YELLOW="\033[0;33m"
+COLOR_RED="\033[0;31m"
+COLOR_BLUE="\033[0;34m"
+
+log_info() {
+    echo -e "${COLOR_BLUE}🔍 [pre-commit] $1${COLOR_RESET}"
+}
+
+log_success() {
+    echo -e "${COLOR_GREEN}✅ [pre-commit] $1${COLOR_RESET}"
+}
+
+log_warning() {
+    echo -e "${COLOR_YELLOW}⚠️  [pre-commit] $1${COLOR_RESET}"
+}
+
+log_error() {
+    echo -e "${COLOR_RED}❌ [pre-commit] $1${COLOR_RESET}"
+}
+
+log_info "コミット前レビューを開始..."
+
+BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
+
+if [[ "$BRANCH_NAME" == "main" ]] || [[ "$BRANCH_NAME" == "master" ]] || [[ "$BRANCH_NAME" == "develop" ]]; then
+    log_warning "保護されたブランチ ($BRANCH_NAME) への直接コミットは推奨されません"
+    log_info "feature/*, review/*, ui-test/* ブランチでの作業を推奨します"
+fi
+
+CHANGED_FILES=$(git diff --cached --name-only --diff-filter=ACM)
+
+if [ -z "$CHANGED_FILES" ]; then
+    log_info "変更ファイルなし。レビューをスキップします。"
+    exit 0
+fi
+
+log_info "変更ファイル:"
+echo "$CHANGED_FILES" | sed 's/^/  - /'
+
+CODE_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(py|js|html|css|sh)$' || true)
+
+if [ -z "$CODE_FILES" ]; then
+    log_info "コードファイルの変更なし。レビューをスキップします。"
+    exit 0
+fi
+
+log_info "コードレビューを実行中..."
+
+if [ -f "$PROJECT_ROOT/review/code_reviewer.py" ]; then
+    REVIEW_OUTPUT=$(python3 "$PROJECT_ROOT/review/code_reviewer.py" "pre-commit-$BRANCH_NAME" $CODE_FILES 2>&1)
+    
+    echo "$REVIEW_OUTPUT"
+    
+    LATEST_REPORT=$(find "$PROJECT_ROOT/review-reports" -name "review-pre-commit-$BRANCH_NAME-*.md" 2>/dev/null | sort | tail -1)
+    
+    if [ -f "$LATEST_REPORT" ]; then
+        CRITICAL_COUNT=$(grep -c "🔴 Critical Issues" "$LATEST_REPORT" || echo "0")
+        
+        if grep -q "❌ NOT APPROVED" "$LATEST_REPORT"; then
+            log_error "Critical問題が検出されました"
+            log_info "レビューレポート: $LATEST_REPORT"
+            
+            log_warning "自動修正を試行しますか? (y/n/skip)"
+            read -t 10 -r answer || answer="skip"
+            
+            if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+                log_info "自動修正サブエージェントを起動中..."
+                log_warning "Claude Codeで以下のコマンドを実行してください:"
+                echo ""
+                echo "Task("
+                echo "    subagent_type=\"code-reviewer\","
+                echo "    prompt=\"$LATEST_REPORT の Critical問題を自動修正してください\""
+                echo ")"
+                echo ""
+                log_error "自動修正完了後、再度コミットを実行してください"
+                exit 1
+            elif [ "$answer" = "skip" ]; then
+                log_warning "レビューをスキップしてコミットを続行します"
+                log_info "後でレビューレポートを確認してください: $LATEST_REPORT"
+            else
+                log_error "コミットを中止します。問題を修正してから再度コミットしてください。"
+                log_info "レビューレポート: $LATEST_REPORT"
+                exit 1
+            fi
+        else
+            log_success "レビュー承認: 問題なし"
+        fi
+    fi
+else
+    log_warning "code_reviewer.pyが見つかりません"
+    log_info "レビューをスキップしてコミットを続行します"
+fi
+
+log_success "pre-commitチェック完了"
+exit 0
