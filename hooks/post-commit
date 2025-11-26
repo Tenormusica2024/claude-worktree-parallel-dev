@@ -1,0 +1,68 @@
+#!/bin/bash
+
+set -e
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$HOOK_DIR")"
+
+COLOR_RESET="\033[0m"
+COLOR_GREEN="\033[0;32m"
+COLOR_YELLOW="\033[0;33m"
+COLOR_BLUE="\033[0;34m"
+
+log_info() {
+    echo -e "${COLOR_BLUE}📝 [post-commit] $1${COLOR_RESET}"
+}
+
+log_success() {
+    echo -e "${COLOR_GREEN}✅ [post-commit] $1${COLOR_RESET}"
+}
+
+log_info "コミット後処理を開始..."
+
+BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
+COMMIT_HASH=$(git rev-parse --short HEAD)
+COMMIT_MESSAGE=$(git log -1 --pretty=%B)
+
+log_info "ブランチ: $BRANCH_NAME"
+log_info "コミット: $COMMIT_HASH"
+
+if [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
+    log_info "feature ブランチを検出"
+    
+    FEATURE_NAME=$(echo "$BRANCH_NAME" | sed 's/^feature\///')
+    
+    log_info "詳細レビューを実行しますか? (y/n)"
+    read -t 10 -r answer || answer="n"
+    
+    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+        log_info "Claude Codeでレビューworktreeを開いて以下のコマンドを実行してください:"
+        echo ""
+        echo "Task("
+        echo "    subagent_type=\"code-reviewer\","
+        echo "    prompt=\"feature/$FEATURE_NAME ブランチの最新コミット ($COMMIT_HASH) のコードレビューを実施してください\""
+        echo ")"
+        echo ""
+    fi
+fi
+
+if [ -f "$PROJECT_ROOT/../github-remote-desktop/task_complete_private.py" ]; then
+    log_info "GitHub Issueに自動報告しますか? (y/n)"
+    read -t 10 -r answer || answer="n"
+    
+    if [ "$answer" = "y" ] || [ "$answer" = "Y" ]; then
+        REPORT_MESSAGE="コミット完了: $COMMIT_HASH
+
+ブランチ: $BRANCH_NAME
+コミットメッセージ:
+$COMMIT_MESSAGE"
+        
+        cd "$PROJECT_ROOT/../github-remote-desktop"
+        python task_complete_private.py "$REPORT_MESSAGE"
+        
+        log_success "GitHub Issueに報告完了"
+    fi
+fi
+
+log_success "post-commit処理完了"
+exit 0

@@ -1,0 +1,89 @@
+#!/bin/bash
+
+set -e
+
+HOOK_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$HOOK_DIR")"
+
+COLOR_RESET="\033[0m"
+COLOR_GREEN="\033[0;32m"
+COLOR_YELLOW="\033[0;33m"
+COLOR_RED="\033[0;31m"
+COLOR_BLUE="\033[0;34m"
+
+log_info() {
+    echo -e "${COLOR_BLUE}🚀 [pre-push] $1${COLOR_RESET}"
+}
+
+log_success() {
+    echo -e "${COLOR_GREEN}✅ [pre-push] $1${COLOR_RESET}"
+}
+
+log_warning() {
+    echo -e "${COLOR_YELLOW}⚠️  [pre-push] $1${COLOR_RESET}"
+}
+
+log_error() {
+    echo -e "${COLOR_RED}❌ [pre-push] $1${COLOR_RESET}"
+}
+
+log_info "プッシュ前チェックを開始..."
+
+BRANCH_NAME=$(git symbolic-ref --short HEAD 2>/dev/null || echo "detached")
+
+log_info "ブランチ: $BRANCH_NAME"
+
+REVIEW_REPORTS=$(find "$PROJECT_ROOT/review-reports" -name "review-*.md" -mtime -1 2>/dev/null || true)
+
+if [ -z "$REVIEW_REPORTS" ]; then
+    log_warning "最近のレビューレポートが見つかりません"
+    log_info "プッシュ前にコードレビューを実行することを推奨します"
+    
+    log_warning "レビューなしでプッシュを続行しますか? (y/n)"
+    read -t 10 -r answer || answer="n"
+    
+    if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+        log_error "プッシュを中止します"
+        log_info "以下のコマンドでレビューを実行してください:"
+        echo ""
+        echo "./scripts/parallel-dev-flow.sh review $(echo "$BRANCH_NAME" | sed 's/^feature\///')"
+        echo ""
+        exit 1
+    fi
+else
+    log_info "最新のレビューレポート:"
+    echo "$REVIEW_REPORTS" | sed 's/^/  - /'
+    
+    CRITICAL_REPORTS=$(grep -l "❌ NOT APPROVED" $REVIEW_REPORTS 2>/dev/null || true)
+    
+    if [ -n "$CRITICAL_REPORTS" ]; then
+        log_error "未承認のレビューレポートがあります:"
+        echo "$CRITICAL_REPORTS" | sed 's/^/  - /'
+        
+        log_warning "Critical問題を修正せずにプッシュしますか? (y/n)"
+        read -t 10 -r answer || answer="n"
+        
+        if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+            log_error "プッシュを中止します。問題を修正してから再度プッシュしてください。"
+            exit 1
+        fi
+    else
+        log_success "すべてのレビューが承認されています"
+    fi
+fi
+
+if [[ "$BRANCH_NAME" =~ ^feature/ ]]; then
+    log_info "UI検証を実行しましたか? (y/n/skip)"
+    read -t 10 -r answer || answer="skip"
+    
+    if [ "$answer" = "n" ] || [ "$answer" = "N" ]; then
+        log_warning "UI検証を推奨します"
+        log_info "デプロイ後、以下のコマンドでUI検証を実行してください:"
+        echo ""
+        echo "./scripts/parallel-dev-flow.sh ui-test $(echo "$BRANCH_NAME" | sed 's/^feature\///') https://your-app-url.com"
+        echo ""
+    fi
+fi
+
+log_success "pre-pushチェック完了"
+exit 0
