@@ -5,7 +5,7 @@
 
 Claude CodeのTask toolサブエージェント機能とGit Worktreeを組み合わせ、**メイン開発・コードレビュー・UI検証を完全並列実行**する革新的な開発システム。
 
-![System Overview](https://via.placeholder.com/800x400?text=Claude+Worktree+Parallel+Dev+System)
+![Claude Worktree Parallel Dev: 実装・レビュー・UI検証を並列化](docs/assets/claude-worktree-parallel-dev-hero.png)
 
 ## 🎯 プロジェクト概要
 
